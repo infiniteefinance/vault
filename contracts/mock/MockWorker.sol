@@ -56,12 +56,13 @@ contract MockWorker is YieldWorker {
         reward.transfer(msg.sender, _amount);
     }
 
-    function work() external override {
+    function work(bytes calldata) external override {
         workerVault.updateVault();
         reward.mint(pending);
         pending = 0;
     }
 
     function emergencyWithdraw() external override {
+        farm.transfer(msg.sender, farm.balanceOf(address(this)));
     }
 }

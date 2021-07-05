@@ -8,6 +8,7 @@ const minGov = 10000;
 let accounts = []
 
 describe("InfiniteeVault with FeeManager", async function () {
+  const minAmountData = "0x0000000000000000000000000000000000000000000000000000000000000000"
   let farmToken;
   let rewardToken;
   let mockWorker;
@@ -27,12 +28,12 @@ describe("InfiniteeVault with FeeManager", async function () {
     const farmAmount = ethers.utils.parseEther("1000");
     await farmToken.mint(farmAmount);
     await farmToken.approve(vault.address, farmAmount);
-    await vault.deposit(farmAmount);
+    await vault.deposit(farmAmount, minAmountData);
     
     const pending = ethers.utils.parseEther("500")
     await mockWorker.setPending(pending)
 
-    await vault.withdraw("0");
+    await vault.withdraw("0", minAmountData);
     const rewardBalance = await rewardToken.balanceOf(accounts[0].address)
     const feeAddressRewardBalance = await rewardToken.balanceOf(accounts[2].address)
 
@@ -47,12 +48,12 @@ describe("InfiniteeVault with FeeManager", async function () {
     const farmAmount = ethers.utils.parseEther("1000");
     await farmToken.mint(farmAmount);
     await farmToken.approve(vault.address, farmAmount);
-    await vault.deposit(farmAmount);
+    await vault.deposit(farmAmount, minAmountData);
     
     const pending = ethers.utils.parseEther("500")
     await mockWorker.setPending(pending)
 
-    await vault.deposit("0");
+    await vault.deposit("0", minAmountData);
     const rewardBalance = await rewardToken.balanceOf(accounts[0].address)
     const feeAddressRewardBalance = await rewardToken.balanceOf(accounts[2].address)
 
@@ -67,14 +68,14 @@ describe("InfiniteeVault with FeeManager", async function () {
     const farmAmount = ethers.utils.parseEther("1000");
     await farmToken.mint(farmAmount);
     await farmToken.approve(vault.address, farmAmount);
-    await vault.deposit(farmAmount);
+    await vault.deposit(farmAmount, minAmountData);
     
     await farmToken.mint(minGov);
     
     const pending = ethers.utils.parseEther("500")
     await mockWorker.setPending(pending)
 
-    await vault.withdraw("0");
+    await vault.withdraw("0", minAmountData);
     const rewardBalance = await rewardToken.balanceOf(accounts[0].address)
     const feeAddressRewardBalance = await rewardToken.balanceOf(accounts[2].address)
 
@@ -89,14 +90,14 @@ describe("InfiniteeVault with FeeManager", async function () {
     const farmAmount = ethers.utils.parseEther("1000");
     await farmToken.mint(farmAmount);
     await farmToken.approve(vault.address, farmAmount);
-    await vault.deposit(farmAmount);
+    await vault.deposit(farmAmount, minAmountData);
     
     await farmToken.mint(minGov);
     
     const pending = ethers.utils.parseEther("500")
     await mockWorker.setPending(pending)
 
-    await vault.deposit("0");
+    await vault.deposit("0", minAmountData);
     const rewardBalance = await rewardToken.balanceOf(accounts[0].address)
     const feeAddressRewardBalance = await rewardToken.balanceOf(accounts[2].address)
 
@@ -111,14 +112,14 @@ describe("InfiniteeVault with FeeManager", async function () {
     const farmAmount = ethers.utils.parseEther("1000");
     await farmToken.mint(farmAmount);
     await farmToken.approve(vault.address, farmAmount);
-    await vault.deposit(farmAmount);
+    await vault.deposit(farmAmount, minAmountData);
     
     await farmToken.mint(minGov - 1);
     
     const pending = ethers.utils.parseEther("500")
     await mockWorker.setPending(pending)
 
-    await vault.withdraw("0");
+    await vault.withdraw("0", minAmountData);
     const rewardBalance = await rewardToken.balanceOf(accounts[0].address)
     const feeAddressRewardBalance = await rewardToken.balanceOf(accounts[2].address)
 
@@ -133,14 +134,14 @@ describe("InfiniteeVault with FeeManager", async function () {
     const farmAmount = ethers.utils.parseEther("1000");
     await farmToken.mint(farmAmount);
     await farmToken.approve(vault.address, farmAmount);
-    await vault.deposit(farmAmount);
+    await vault.deposit(farmAmount, minAmountData);
     
     await farmToken.mint(minGov - 1);
     
     const pending = ethers.utils.parseEther("500")
     await mockWorker.setPending(pending)
 
-    await vault.deposit("0");
+    await vault.deposit("0", minAmountData);
     const rewardBalance = await rewardToken.balanceOf(accounts[0].address)
     const feeAddressRewardBalance = await rewardToken.balanceOf(accounts[2].address)
 

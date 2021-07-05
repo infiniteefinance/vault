@@ -5,14 +5,20 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "../interface/IUniswapRouterETH.sol";
 
 contract MockRouter is IUniswapRouterETH {
+
+    uint256[] mockOut;
+
+    function setMockOut(uint256[] memory _mockOut) external {
+        mockOut = _mockOut;
+    }
+
     function getAmountsOut(uint256, address[] calldata)
         external
         view
         override
         returns (uint256[] memory amounts)
     {
-        uint256[] memory out;
-        return out;
+        return mockOut;
     }
 
     function addLiquidity(

@@ -7,9 +7,10 @@ interface Vault {
     function pendingReward() external view returns (uint256);
     function totalRewardPerShare() external view returns (uint256);
     function userPendingReward(address) external view returns (uint256);
-    function deposit(uint256) external;
-    function withdraw(uint256) external;
-    function withdrawAll() external;
-    function work() external;
+    function userInfo(address) external view returns(uint256 amount, uint256 rewardDebt, uint256 withdrawableBlock);
+    function deposit(uint256, bytes calldata) external;
+    function withdraw(uint256, bytes calldata) external;
+    function withdrawAll(bytes calldata) external;
+    function work(bytes calldata) external;
     function updateVault() external;
 }

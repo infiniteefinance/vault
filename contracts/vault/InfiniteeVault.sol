@@ -30,12 +30,16 @@ contract InfiniteeVault is ERC20, Vault, Ownable, ReentrancyGuard {
     FeeManager public feeManager;
     // Reward amount per share.
     uint256 public rewardPerShare;
+    // Total share amount minted
+    uint256 public totalShare;
     // Delay block for withdraw after deposit into vault.
     uint256 public delayWithdrawalBlock;
     // Info of each user that using vaults.
     mapping(address => UserInfo) public userInfos;
     // Operator address.
     address public operator;
+    // Maximum withdrawal delay blocks (1200 Blocks ~ 1 Hour)
+    uint256 constant public MAX_WITHDRAWAL_DELAY = 1200;
 
     modifier onlyOperator {
         require(msg.sender == operator, "permission: not operator!");
@@ -76,7 +80,7 @@ contract InfiniteeVault is ERC20, Vault, Ownable, ReentrancyGuard {
     function totalRewardPerShare() public view override returns (uint256) {
         uint256 _rewardPerShare = rewardPerShare;
         uint256 _pendingReward = pendingReward();
-        uint256 _totalSupply = totalSupply();
+        uint256 _totalSupply = totalShare;
 
         if (_pendingReward != 0 && _totalSupply != 0) {
             uint256 _pendingRewardPerShare =
@@ -87,34 +91,27 @@ contract InfiniteeVault is ERC20, Vault, Ownable, ReentrancyGuard {
         return _rewardPerShare;
     }
 
-    function userPendingReward(address _user)
-        public
-        view
-        override
-        returns (uint256)
-    {
+    function userPendingReward(address _user) public view override returns (uint256) {
         UserInfo memory user = userInfos[_user];
-        uint256 pending =
-            user.amount.mul(totalRewardPerShare()).div(1e12).sub(
-                user.rewardDebt
-            );
+        uint256 pending = user.amount.mul(totalRewardPerShare()).div(1e12).sub(user.rewardDebt);
         return pending;
+    }
+
+    function userInfo(address _user) external view override returns(uint256 amount, uint256 rewardDebt, uint256 withdrawableBlock) {
+        UserInfo memory user = userInfos[_user];
+        return (user.amount, user.rewardDebt, user.withdrawableBlock);
     }
 
     // Mutation
 
-    function deposit(uint256 _amount) public override nonReentrant {
+    function deposit(uint256 _amount, bytes calldata data) public override nonReentrant {
         UserInfo storage user = userInfos[msg.sender];
 
-        worker.work();
+        worker.work(data);
         claimRewardAndPayFee();
 
         if (_amount > 0) {
-            IERC20(farmToken()).safeTransferFrom(
-                msg.sender,
-                address(worker),
-                _amount
-            );
+            IERC20(farmToken()).safeTransferFrom(msg.sender, address(worker), _amount);
             worker.deposit();
             user.amount = user.amount.add(_amount);
             user.withdrawableBlock = block.number.add(delayWithdrawalBlock);
@@ -123,21 +120,22 @@ contract InfiniteeVault is ERC20, Vault, Ownable, ReentrancyGuard {
         user.rewardDebt = user.amount.mul(totalRewardPerShare()).div(1e12);
 
         _mint(msg.sender, _amount);
+        totalShare = totalShare.add(_amount);
 
         emit Deposit(msg.sender, _amount);
     }
 
-    function withdrawAll() public override {
+    function withdrawAll(bytes calldata data) public override {
         UserInfo storage user = userInfos[msg.sender];
-        withdraw(user.amount);
+        withdraw(user.amount, data);
     }
 
-    function withdraw(uint256 _amount) public override nonReentrant {
+    function withdraw(uint256 _amount, bytes calldata data) public override nonReentrant {
         UserInfo storage user = userInfos[msg.sender];
         require(user.amount >= _amount, "withdraw: not enough fund!");
         require(block.number >= user.withdrawableBlock, "withdraw: too fast after deposit!");
 
-        worker.work();
+        worker.work(data);
         claimRewardAndPayFee();
 
         if (_amount > 0) {
@@ -145,19 +143,20 @@ contract InfiniteeVault is ERC20, Vault, Ownable, ReentrancyGuard {
             require(balance >= _amount, "withdraw: not enough token!");
 
             _burn(msg.sender, _amount);
+            totalShare = totalShare.sub(_amount);
             user.amount = user.amount.sub(_amount);
+            
+            worker.withdraw(_amount);
+            IERC20(farmToken()).safeTransfer(msg.sender, _amount);
         }
 
         user.rewardDebt = user.amount.mul(totalRewardPerShare()).div(1e12);
 
-        worker.withdraw(_amount);
-        IERC20(farmToken()).safeTransfer(msg.sender, _amount);
-
         emit Withdraw(msg.sender, _amount);
     }
 
-    function work() public override onlyOperator {
-        worker.work();
+    function work(bytes calldata data) public override onlyOperator {
+        worker.work(data);
         emit OperatorWork(rewardPerShare);
     }
 
@@ -166,18 +165,24 @@ contract InfiniteeVault is ERC20, Vault, Ownable, ReentrancyGuard {
         rewardPerShare = totalRewardPerShare();
     }
 
-    function emergencyWithdrawWorker() external onlyOwner {
+    function emergencyWithdrawWorker() external onlyOperator {
         worker.emergencyWithdraw();
     }
 
-    function userEmergencyWithdraw() external {
-        uint256 amount = userInfos[msg.sender].amount;
+    function userEmergencyWithdraw() external nonReentrant {
+        UserInfo storage user = userInfos[msg.sender];
+        uint256 amount = user.amount;
         if (amount > 0) {
+            user.amount = 0;
+            user.rewardDebt = 0;
+            totalShare = totalShare.sub(amount);
+            _burn(msg.sender, amount);
             IERC20(farmToken()).safeTransfer(msg.sender, amount);
         }
     }
 
     function setWorker(YieldWorker _worker) public onlyOwner {
+        require(address(worker) == address(0), "Worker is already set.");
         worker = _worker;
         emit WorkerChanged(address(_worker));
     }
@@ -188,13 +193,13 @@ contract InfiniteeVault is ERC20, Vault, Ownable, ReentrancyGuard {
     }
 
     function setDelayWithdrawalBlock(uint256 _delay) external onlyOwner {
+        require(_delay <= MAX_WITHDRAWAL_DELAY, "withdraw delay: must not longer than limit.");
         delayWithdrawalBlock = _delay;
     }
 
     function setOperator(address _operator) external onlyOperator {
         operator = _operator;
     }
-
 
     // Private
 
@@ -205,19 +210,12 @@ contract InfiniteeVault is ERC20, Vault, Ownable, ReentrancyGuard {
             worker.claimReward(_pendingReward);
 
             UserInfo memory user = userInfos[msg.sender];
-            uint256 _feeRateBPS =
-                feeManager.feeRateBPS(msg.sender, user.amount, user.rewardDebt);
+            uint256 _feeRateBPS = feeManager.feeRateBPS(msg.sender, user.amount, user.rewardDebt);
 
             if (_feeRateBPS > 0) {
                 uint256 _fee = _pendingReward.mul(_feeRateBPS).div(10000);
-                IERC20(rewardToken()).safeTransfer(
-                    feeManager.feeAddress(),
-                    _fee
-                );
-                IERC20(rewardToken()).safeTransfer(
-                    msg.sender,
-                    _pendingReward.sub(_fee)
-                );
+                IERC20(rewardToken()).safeTransfer(feeManager.feeAddress(), _fee);
+                IERC20(rewardToken()).safeTransfer(msg.sender, _pendingReward.sub(_fee));
             } else {
                 IERC20(rewardToken()).safeTransfer(msg.sender, _pendingReward);
             }

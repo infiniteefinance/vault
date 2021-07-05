@@ -16,7 +16,7 @@ interface YieldWorker {
 
     function claimReward(uint256) external;
 
-    function work() external;
+    function work(bytes calldata) external;
 
     function emergencyWithdraw() external;
 }

@@ -4,6 +4,7 @@ const { ethers } = require("hardhat");
 let accounts = []
 
 describe("InfiniteeVault", async function () {
+  const minAmountData = "0x0000000000000000000000000000000000000000000000000000000000000000"
   let farmToken;
   let rewardToken;
   let mockWorker;
@@ -23,7 +24,7 @@ describe("InfiniteeVault", async function () {
     const farmAmount = ethers.utils.parseEther("1000");
     await farmToken.mint(farmAmount);
     await farmToken.approve(vault.address, farmAmount);
-    await vault.deposit(farmAmount);
+    await vault.deposit(farmAmount, minAmountData);
     
     const user = await vault.userInfos(accounts[0].address)
     const vaultTokenAmount = await vault.balanceOf(accounts[0].address)
@@ -37,7 +38,7 @@ describe("InfiniteeVault", async function () {
     const farmAmount = ethers.utils.parseEther("1000");
     await farmToken.mint(farmAmount);
     await farmToken.approve(vault.address, farmAmount);
-    await vault.deposit(farmAmount);
+    await vault.deposit(farmAmount, minAmountData);
     
     const pending = ethers.utils.parseEther("500")
     await mockWorker.setPending(pending)
@@ -52,7 +53,7 @@ describe("InfiniteeVault", async function () {
     const farmAmount = ethers.utils.parseEther("1000");
     await farmToken.mint(farmAmount);
     await farmToken.approve(vault.address, farmAmount);
-    await vault.deposit(farmAmount);
+    await vault.deposit(farmAmount, minAmountData);
     
     const pending = ethers.utils.parseEther("500")
     await mockWorker.setPending(pending)
@@ -60,7 +61,7 @@ describe("InfiniteeVault", async function () {
     const secondFarmAmount = ethers.utils.parseEther("100");
     await farmToken.connect(accounts[1]).mint(secondFarmAmount);
     await farmToken.connect(accounts[1]).approve(vault.address, secondFarmAmount);
-    await vault.connect(accounts[1]).deposit(secondFarmAmount);
+    await vault.connect(accounts[1]).deposit(secondFarmAmount, minAmountData);
 
     const user = await vault.userInfos(accounts[1].address)
     const expectRewardDebt = ethers.utils.parseEther("50")
@@ -72,12 +73,12 @@ describe("InfiniteeVault", async function () {
     const farmAmount = ethers.utils.parseEther("1000");
     await farmToken.mint(farmAmount);
     await farmToken.approve(vault.address, farmAmount);
-    await vault.deposit(farmAmount);
+    await vault.deposit(farmAmount, minAmountData);
     
     const pending = ethers.utils.parseEther("500")
     await mockWorker.setPending(pending)
 
-    await vault.withdraw("0");
+    await vault.withdraw("0", minAmountData);
     const rewardBalance = await rewardToken.balanceOf(accounts[0].address)
 
     expect(rewardBalance).to.equal(pending, "Reward balance after withdraw must match with pending");
@@ -87,12 +88,12 @@ describe("InfiniteeVault", async function () {
     const farmAmount = ethers.utils.parseEther("1000");
     await farmToken.mint(farmAmount);
     await farmToken.approve(vault.address, farmAmount);
-    await vault.deposit(farmAmount);
+    await vault.deposit(farmAmount, minAmountData);
     
     const pending = ethers.utils.parseEther("500")
     await mockWorker.setPending(pending)
 
-    await vault.deposit("0");
+    await vault.deposit("0", minAmountData);
     const rewardBalance = await rewardToken.balanceOf(accounts[0].address)
 
     expect(rewardBalance).to.equal(pending, "Reward balance after withdraw must match with pending");
@@ -104,9 +105,9 @@ describe("InfiniteeVault", async function () {
     await farmToken.approve(vault.address, farmAmount);
     
     await vault.setDelayWithdrawalBlock(1);
-    await vault.deposit(farmAmount);
+    await vault.deposit(farmAmount, minAmountData);
     
-    await vault.withdraw(farmAmount);
+    await vault.withdraw(farmAmount, minAmountData);
     const balance = await farmToken.balanceOf(accounts[0].address)
 
     expect(balance).to.equal(farmAmount, "Amount after withdraw should remain the same as deposit");
@@ -118,9 +119,118 @@ describe("InfiniteeVault", async function () {
     await farmToken.approve(vault.address, farmAmount);
     
     await vault.setDelayWithdrawalBlock(5);
-    await vault.deposit(farmAmount);
+    await vault.deposit(farmAmount, minAmountData);
     
-    await expect(vault.withdraw(farmAmount)).to.be.revertedWith("withdraw: too fast after deposit!")
+    await expect(vault.withdraw(farmAmount, minAmountData)).to.be.revertedWith("withdraw: too fast after deposit!")
+  });
+
+  it("Should not be able to call userEmergencyWithdraw once withdraw before owner call emergencyWithdrawWorker ", async function () {
+    const farmAmount = ethers.utils.parseEther("1000");
+    await farmToken.mint(farmAmount);
+    await farmToken.approve(vault.address, farmAmount);
+    
+    await vault.deposit(farmAmount, minAmountData);
+
+    await expect(vault.userEmergencyWithdraw()).to.be.revertedWith("ERC20: transfer amount exceeds balance");
+  });
+
+  it("Should get all farm token once owner call emergencyWithdrawWorker ", async function () {
+    const farmAmount = ethers.utils.parseEther("1000");
+    await farmToken.mint(farmAmount);
+    await farmToken.approve(vault.address, farmAmount);
+    
+    await vault.deposit(farmAmount, minAmountData);
+
+    const secondFarmAmount = ethers.utils.parseEther("2000");
+    await farmToken.connect(accounts[1]).mint(secondFarmAmount);
+    await farmToken.connect(accounts[1]).approve(vault.address, secondFarmAmount);
+    
+    await vault.connect(accounts[1]).deposit(secondFarmAmount, minAmountData);
+
+    await vault.emergencyWithdrawWorker();
+    const vaultBalance = await farmToken.balanceOf(vault.address);
+
+    expect(vaultBalance).to.equal(farmAmount.add(secondFarmAmount));
+  });
+
+  it("Should able to call userEmergencyWithdraw once owner call emergencyWithdrawWorker ", async function () {
+    const farmAmount = ethers.utils.parseEther("1000");
+    await farmToken.mint(farmAmount);
+    await farmToken.approve(vault.address, farmAmount);
+    
+    await vault.deposit(farmAmount, minAmountData);
+
+    const secondFarmAmount = ethers.utils.parseEther("2000");
+    await farmToken.connect(accounts[1]).mint(secondFarmAmount);
+    await farmToken.connect(accounts[1]).approve(vault.address, secondFarmAmount);
+    
+    await vault.connect(accounts[1]).deposit(secondFarmAmount, minAmountData);
+
+    await vault.emergencyWithdrawWorker();
+    
+    await vault.connect(accounts[1]).userEmergencyWithdraw();
+    const secondAccountAmount = await farmToken.balanceOf(accounts[1].address);
+
+    expect(secondAccountAmount).to.equal(secondFarmAmount);
+  });
+
+  it("Should reset reward once call userEmergencyWithdraw ", async function () {
+    const farmAmount = ethers.utils.parseEther("1000");
+    await farmToken.mint(farmAmount);
+    await farmToken.approve(vault.address, farmAmount);
+    
+    await vault.deposit(farmAmount, minAmountData);
+
+    const secondFarmAmount = ethers.utils.parseEther("2000");
+    await farmToken.connect(accounts[1]).mint(secondFarmAmount);
+    await farmToken.connect(accounts[1]).approve(vault.address, secondFarmAmount);
+
+    const pending = ethers.utils.parseEther("500")
+    await mockWorker.setPending(pending)
+    await vault.work(minAmountData);
+    
+    await vault.connect(accounts[1]).deposit(secondFarmAmount, minAmountData);
+    await vault.emergencyWithdrawWorker();
+    await vault.connect(accounts[1]).userEmergencyWithdraw();
+
+    await mockWorker.setPending(pending)
+    await mockWorker.work(minAmountData)
+
+    await vault.connect(accounts[1]).deposit(0, minAmountData);
+    
+    const rewardBalance = await rewardToken.balanceOf(accounts[1].address)
+
+    expect(rewardBalance).to.equal(0);
+  });
+
+  it("Should calculate reward correctly on non withdraw user once other user call userEmergencyWithdraw ", async function () {
+    const farmAmount = ethers.utils.parseEther("1000");
+    await farmToken.mint(farmAmount);
+    await farmToken.approve(vault.address, farmAmount);
+    
+    await vault.deposit(farmAmount, minAmountData);
+
+    const secondFarmAmount = ethers.utils.parseEther("1000");
+    await farmToken.connect(accounts[1]).mint(secondFarmAmount);
+    await farmToken.connect(accounts[1]).approve(vault.address, secondFarmAmount);
+
+    const pending = ethers.utils.parseEther("500")
+    await mockWorker.setPending(pending)
+    await vault.work(minAmountData);
+    
+    await vault.connect(accounts[1]).deposit(secondFarmAmount, minAmountData);
+    await vault.emergencyWithdrawWorker();
+    await vault.connect(accounts[1]).userEmergencyWithdraw();
+
+    await mockWorker.setPending(pending)
+    await mockWorker.work(minAmountData)
+
+    await vault.deposit(0, minAmountData);
+    
+    const rewardBalance = await rewardToken.balanceOf(accounts[0].address)
+    const expectRewardBalance = ethers.utils.parseEther("1000")
+
+    expect(rewardBalance).to.equal(expectRewardBalance);
   });
 });
 
