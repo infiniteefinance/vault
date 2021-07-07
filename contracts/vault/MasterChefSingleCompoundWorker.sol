@@ -11,13 +11,11 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "../interface/Vault.sol";
 import "../interface/YieldWorker.sol";
-import "../interface/IAlpacaVault.sol";
-import "../interface/IFairLaunch.sol";
 import "../interface/IMasterChef.sol";
 import "../interface/IUniswapRouterETH.sol";
 import "../interface/PriceOracle.sol";
 
-contract MasterChefWithVaultWorker is YieldWorker, Ownable, Pausable {
+contract MasterChefSingleCompoundWorker is YieldWorker, Ownable, Pausable {
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
 
@@ -25,14 +23,12 @@ contract MasterChefWithVaultWorker is YieldWorker, Ownable, Pausable {
     IERC20 public farm;
     IERC20 public farmReward;
     IERC20 public userReward;
-    IERC20 public fairLaunchReward;
 
     // Contract dependencies
     Vault public vault;
-    IAlpacaVault public alpacaVault;
-    IFairLaunch public fairLaunch;
     IUniswapRouterETH public router;
     IMasterChef public masterChef;
+    IMasterChef public rewardMasterChef;
     PriceOracle public oracle;
 
     // Current pending reward amount
@@ -41,15 +37,12 @@ contract MasterChefWithVaultWorker is YieldWorker, Ownable, Pausable {
     uint256 public currentReward;
     // MasterChef poolId
     uint256 public poolId;
-    // Alpaca FairLaunch poolId
-    uint256 public fairLaunchPoolId;
+    // Reward MasterChef poolId
+    uint256 public rewardPoolId;
     // Minimum farmReward token before swap to reward
     uint256 public minFarmBeforeSwap;
-    // Minimum fairLaunchReward token before swap to reward
-    uint256 public minFairLaunchBeforeSwap;
     // Reward token route
     address[] public rewardRoute;
-    address[] public fairLaunchRewardRoute;
     // Operator address.
     address public operator;
 
@@ -67,30 +60,24 @@ contract MasterChefWithVaultWorker is YieldWorker, Ownable, Pausable {
         IERC20 _farmToken,
         IERC20 _farmRewardToken,
         IERC20 _userRewardToken,
-        IERC20 _fairLaunchRewardToken,
-        IAlpacaVault _alpacaVault,
-        IFairLaunch _fairLaunch,
         IUniswapRouterETH _router,
         IMasterChef _masterChef,
+        IMasterChef _rewardMasterChef,
         PriceOracle _oracle,
         uint256 _poolId,
-        uint256 _fairLaunchPoolId,
-        address[] memory _rewardRoute,
-        address[] memory _fairLaunchRewardRoute
+        uint256 _rewardPoolId,
+        address[] memory _rewardRoute
     ) public {
         farm = _farmToken;
         farmReward = _farmRewardToken;
         userReward = _userRewardToken;
-        fairLaunchReward = _fairLaunchRewardToken;
-        alpacaVault = _alpacaVault;
-        fairLaunch = _fairLaunch;
         router = _router;
         masterChef = _masterChef;
+        rewardMasterChef = _rewardMasterChef;
         oracle = _oracle;
         poolId = _poolId;
-        fairLaunchPoolId = _fairLaunchPoolId;
+        rewardPoolId = _rewardPoolId;
         rewardRoute = _rewardRoute;
-        fairLaunchRewardRoute = _fairLaunchRewardRoute;
         operator = msg.sender;
     }
 
@@ -141,44 +128,33 @@ contract MasterChefWithVaultWorker is YieldWorker, Ownable, Pausable {
 
     function work(bytes calldata data) external override onlyVault {
         require(!oracle.isPriceDiffOverThreshold(rewardRoute), "Price: price diff over threshold!");
-        require(!oracle.isPriceDiffOverThreshold(fairLaunchRewardRoute), "Price: price diff over threshold!");
 
         masterChef.deposit(poolId, 0);
 
         if (currentReward > 0) {
-            fairLaunch.withdrawAll(address(this), fairLaunchPoolId);
+            rewardMasterChef.deposit(rewardPoolId, 0);
         }
 
         uint256 farmRewardBalance = farmReward.balanceOf(address(this));
-        uint256 fairLaunchRewardBalance = fairLaunchReward.balanceOf(address(this));
-        (uint256 minOutFromFarm, uint256 minOutFromFairLaunch) = abi.decode(data, (uint256, uint256));
+        uint256 minOutFromFarm = abi.decode(data, (uint256));
 
         // Work on selling reward
         if (farmRewardBalance > minFarmBeforeSwap) {
             swap(farmReward, farmRewardBalance, minOutFromFarm, rewardRoute);
         }
 
-        // Work on selling extra reward from fair launch
-        if (fairLaunchRewardBalance > minFairLaunchBeforeSwap) {
-            swap(fairLaunchReward, fairLaunchRewardBalance, minOutFromFairLaunch, fairLaunchRewardRoute);
-        }
-
         uint256 rewardBalance = userReward.balanceOf(address(this));
 
         if (rewardBalance > 0) {
-            alpacaVault.withdraw(alpacaVault.balanceOf(address(this)));
-            rewardBalance = userReward.balanceOf(address(this));
-            pending = rewardBalance.sub(currentReward);
+            pending = rewardBalance;
             currentReward = currentReward.add(pending);
-
-            depositAllAlpacaVault();
 
             // Update vault reward value and reset pending for the next work
             vault.updateVault();
             pending = 0;
-        }
 
-        depositAllFairLaunch();
+            depositRewardMasterChef(rewardBalance);
+        }
     }
 
     function claimReward(uint256 _amount) external override onlyVault {
@@ -187,16 +163,10 @@ contract MasterChefWithVaultWorker is YieldWorker, Ownable, Pausable {
             currentReward = currentReward.sub(_amount);
 
             if (_amount > workerBalance) {
-                fairLaunch.withdrawAll(address(this), fairLaunchPoolId);
-                alpacaVault.withdraw(alpacaVault.balanceOf(address(this)));
-
-                userReward.safeTransfer(msg.sender, _amount);
-
-                depositAllAlpacaVault();
-                depositAllFairLaunch();
-            } else {
-                userReward.safeTransfer(msg.sender, _amount);
+                rewardMasterChef.withdraw(rewardPoolId, _amount.sub(workerBalance));
             }
+
+            userReward.safeTransfer(msg.sender, _amount);
         }
     }
 
@@ -210,16 +180,15 @@ contract MasterChefWithVaultWorker is YieldWorker, Ownable, Pausable {
         vault = Vault(_vault);
     }
 
-    function setMinSwap(uint256 _minFarmBeforeSwap, uint256 _minFairLaunchBeforeSwap) external onlyOwner {
+    function setMinSwap(uint256 _minFarmBeforeSwap) external onlyOwner {
         minFarmBeforeSwap = _minFarmBeforeSwap;
-        minFairLaunchBeforeSwap = _minFairLaunchBeforeSwap;
     }
 
     function setOperator(address _operator) external onlyOperator {
         operator = _operator;
     }
 
-    function pause() external onlyOperator {
+    function pause() public onlyOperator {
         _pause();
     }
 
@@ -233,24 +202,10 @@ contract MasterChefWithVaultWorker is YieldWorker, Ownable, Pausable {
         _token.safeApprove(address(router), 0);
     }
 
-    function depositAllAlpacaVault() internal {
-        uint256 rewardBalance = userReward.balanceOf(address(this));
-
-        if (rewardBalance > 0) {
-            IERC20(userReward).safeApprove(address(alpacaVault), rewardBalance);
-            alpacaVault.deposit(rewardBalance);
-            IERC20(userReward).safeApprove(address(alpacaVault), 0);
-        }
-    }
-
-    function depositAllFairLaunch() internal {
-        uint256 alpacaVaultBalance = alpacaVault.balanceOf(address(this));
-
-        if (alpacaVaultBalance > 0) {
-            IERC20(alpacaVault).safeApprove(address(fairLaunch), alpacaVaultBalance);
-            fairLaunch.deposit(address(this), fairLaunchPoolId, alpacaVaultBalance);
-            IERC20(alpacaVault).safeApprove(address(fairLaunch), 0);
-        }
+    function depositRewardMasterChef(uint256 _amount) internal {
+        IERC20(userReward).safeApprove(address(rewardMasterChef), _amount);
+        rewardMasterChef.deposit(rewardPoolId, _amount);
+        IERC20(userReward).safeApprove(address(rewardMasterChef), 0);
     }
 
 }

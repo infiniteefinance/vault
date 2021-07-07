@@ -3,7 +3,6 @@ pragma solidity >=0.6.0 <0.8.0;
 
 import "./MockERC20.sol";
 import "../interface/IAlpacaVault.sol";
-import "hardhat/console.sol";
 
 contract MockAlpacaVault is MockERC20("Alpaca Vault", "VAULT"), IAlpacaVault {
     IERC20 public token;

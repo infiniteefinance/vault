@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.6.0 <0.8.0;
+pragma solidity >=0.6.12;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -14,7 +14,6 @@ import "../interface/YieldWorker.sol";
 import "../interface/IMasterChef.sol";
 import "../interface/IUniswapRouterETH.sol";
 import "../interface/PriceOracle.sol";
-import "hardhat/console.sol";
 
 contract MasterChefWorker is YieldWorker, Ownable, Pausable {
     using SafeERC20 for IERC20;

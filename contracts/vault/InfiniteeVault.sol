@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.6.0 <0.8.0;
+pragma solidity >=0.6.12;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -11,7 +11,6 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "../interface/Vault.sol";
 import "../interface/FeeManager.sol";
 import "../interface/YieldWorker.sol";
-import "hardhat/console.sol";
 
 contract InfiniteeVault is ERC20, Vault, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -83,8 +82,7 @@ contract InfiniteeVault is ERC20, Vault, Ownable, ReentrancyGuard {
         uint256 _totalSupply = totalShare;
 
         if (_pendingReward != 0 && _totalSupply != 0) {
-            uint256 _pendingRewardPerShare =
-                _pendingReward.mul(1e12).div(_totalSupply);
+            uint256 _pendingRewardPerShare = _pendingReward.mul(1e12).div(_totalSupply);
             _rewardPerShare = _rewardPerShare.add(_pendingRewardPerShare);
         }
 
@@ -104,7 +102,7 @@ contract InfiniteeVault is ERC20, Vault, Ownable, ReentrancyGuard {
 
     // Mutation
 
-    function deposit(uint256 _amount, bytes calldata data) public override nonReentrant {
+    function deposit(uint256 _amount, bytes calldata data) external override nonReentrant {
         UserInfo storage user = userInfos[msg.sender];
 
         worker.work(data);
@@ -125,7 +123,7 @@ contract InfiniteeVault is ERC20, Vault, Ownable, ReentrancyGuard {
         emit Deposit(msg.sender, _amount);
     }
 
-    function withdrawAll(bytes calldata data) public override {
+    function withdrawAll(bytes calldata data) external override {
         UserInfo storage user = userInfos[msg.sender];
         withdraw(user.amount, data);
     }
@@ -155,12 +153,12 @@ contract InfiniteeVault is ERC20, Vault, Ownable, ReentrancyGuard {
         emit Withdraw(msg.sender, _amount);
     }
 
-    function work(bytes calldata data) public override onlyOperator {
+    function work(bytes calldata data) external override onlyOperator {
         worker.work(data);
         emit OperatorWork(rewardPerShare);
     }
 
-    function updateVault() public override {
+    function updateVault() external override {
         require(msg.sender == address(worker), "vault: only worker!");
         rewardPerShare = totalRewardPerShare();
     }
@@ -181,13 +179,13 @@ contract InfiniteeVault is ERC20, Vault, Ownable, ReentrancyGuard {
         }
     }
 
-    function setWorker(YieldWorker _worker) public onlyOwner {
+    function setWorker(YieldWorker _worker) external onlyOwner {
         require(address(worker) == address(0), "Worker is already set.");
         worker = _worker;
         emit WorkerChanged(address(_worker));
     }
 
-    function setFeeManager(FeeManager _feeManager) public onlyOwner {
+    function setFeeManager(FeeManager _feeManager) external onlyOwner {
         feeManager = _feeManager;
         emit FeeManagerChanged(address(_feeManager));
     }
